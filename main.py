@@ -73,7 +73,7 @@ def update_gui():
     imgtk = ImageTk.PhotoImage(image=frame)
     label.imgtk = imgtk
     label.configure(image=imgtk)
-    label.after(10, update_gui)
+    label.after(100, update_gui)
 
 # Initialize webcam capture
 cap = cv2.VideoCapture(0)
