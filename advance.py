@@ -1,243 +1,192 @@
 import numpy as np
-from PIL import Image, ImageTk
-import tkinter as tk
-from tkinter import Scale, Button, Label, StringVar, Checkbutton, IntVar, Canvas
 import cv2
 from sklearn.cluster import KMeans
-from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import StandardScaler
-import threading
+from sklearn.model_selection import cross_val_score
 import time
 
-# Enhanced SVM Color Classifier with more blue data
+# KNN Color Classifier using X11's 140 colors with HSV
 class ColorClassifier:
     def __init__(self):
-        self.model = SVC(kernel='rbf', probability=True, C=1.0)
+        self.model = KNeighborsClassifier(
+            n_neighbors=3,  # Default, will tune
+            metric='euclidean'
+        )
         self.scaler = StandardScaler()
-        self.colors = ['Red', 'Green', 'Blue', 'Yellow', 'White', 'Black', 'Orange', 'Purple']
-        self.color_data = []
+        self.colors = [
+            'Alice Blue', 'Antique White', 'Aqua', 'Aquamarine', 'Azure', 'Beige', 'Bisque', 'Black',
+            'Blanched Almond', 'Blue', 'Blue Violet', 'Brown', 'Burlywood', 'Cadet Blue', 'Chartreuse',
+            'Chocolate', 'Coral', 'Cornflower Blue', 'Cornsilk', 'Crimson', 'Cyan', 'Dark Blue',
+            'Dark Cyan', 'Dark Goldenrod', 'Dark Gray', 'Dark Green', 'Dark Khaki', 'Dark Magenta',
+            'Dark Olive Green', 'Dark Orange', 'Dark Orchid', 'Dark Red', 'Dark Salmon', 'Dark Sea Green',
+            'Dark Slate Blue', 'Dark Slate Gray', 'Dark Turquoise', 'Dark Violet', 'Deep Pink',
+            'Deep Sky Blue', 'Dim Gray', 'Dodger Blue', 'Firebrick', 'Floral White', 'Forest Green',
+            'Fuchsia', 'Gainsboro', 'Ghost White', 'Gold', 'Goldenrod', 'Gray', 'Green', 'Green Yellow',
+            'Honeydew', 'Hot Pink', 'Indian Red', 'Indigo', 'Ivory', 'Khaki', 'Lavender', 'Lavender Blush',
+            'Lawn Green', 'Lemon Chiffon', 'Light Blue', 'Light Coral', 'Light Cyan', 'Light Goldenrod Yellow',
+            'Light Gray', 'Light Green', 'Light Pink', 'Light Salmon', 'Light Sea Green', 'Light Sky Blue',
+            'Light Slate Gray', 'Light Steel Blue', 'Light Yellow', 'Lime', 'Lime Green', 'Linen', 'Magenta',
+            'Maroon', 'Medium Aquamarine', 'Medium Blue', 'Medium Orchid', 'Medium Purple', 'Medium Sea Green',
+            'Medium Slate Blue', 'Medium Spring Green', 'Medium Turquoise', 'Medium Violet Red', 'Midnight Blue',
+            'Mint Cream', 'Misty Rose', 'Moccasin', 'Navajo White', 'Navy', 'Old Lace', 'Olive', 'Olive Drab',
+            'Orange', 'Orange Red', 'Orchid', 'Pale Goldenrod', 'Pale Green', 'Pale Turquoise', 'Pale Violet Red',
+            'Papaya Whip', 'Peach Puff', 'Peru', 'Pink', 'Plum', 'Powder Blue', 'Purple', 'Red', 'Rosy Brown',
+            'Royal Blue', 'Saddle Brown', 'Salmon', 'Sandy Brown', 'Sea Green', 'Seashell', 'Sienna', 'Silver',
+            'Sky Blue', 'Slate Blue', 'Slate Gray', 'Snow', 'Spring Green', 'Steel Blue', 'Tan', 'Teal', 'Thistle',
+            'Tomato', 'Turquoise', 'Violet', 'Wheat', 'White', 'White Smoke', 'Yellow', 'Yellow Green'
+        ]
+        self.color_data_rgb = []
         self.labels = []
 
+    def generate_variations(self, base_rgb, num_samples=20):
+        """Generate variations with a smaller range."""
+        variations = []
+        r, g, b = base_rgb
+        for _ in range(num_samples):
+            r_var = max(0, min(255, r + np.random.randint(-10, 11)))  # Reduced to ±10
+            g_var = max(0, min(255, g + np.random.randint(-10, 11)))
+            b_var = max(0, min(255, b + np.random.randint(-10, 11)))
+            variations.append([r_var, g_var, b_var])
+        return variations
+
     def train(self):
-        self.color_data = [
-            [255, 0, 0], [200, 50, 50],  # Red
-            [0, 255, 0], [50, 200, 50],  # Green
-            [0, 0, 255], [50, 50, 200], [0, 150, 255], [70, 130, 180],  # More Blue variations
-            [255, 255, 0], [200, 200, 50],  # Yellow
-            [255, 255, 255], [240, 240, 240],  # White
-            [0, 0, 0], [20, 20, 20],  # Black
-            [255, 165, 0], [220, 140, 0],  # Orange
-            [128, 0, 128], [100, 0, 100]  # Purple
+        # X11's 140 colors with their standard RGB values
+        x11_base_colors = [
+            [240, 248, 255], [250, 235, 215], [0, 255, 255], [127, 255, 212], [240, 255, 255],
+            [245, 245, 220], [255, 228, 196], [0, 0, 0], [255, 235, 205], [0, 0, 255],
+            [138, 43, 226], [165, 42, 42], [222, 184, 135], [95, 158, 160], [127, 255, 0],
+            [210, 105, 30], [255, 127, 80], [100, 149, 237], [255, 248, 220], [220, 20, 60],
+            [0, 255, 255], [0, 0, 139], [0, 139, 139], [184, 134, 11], [169, 169, 169],
+            [0, 100, 0], [189, 183, 107], [139, 0, 139], [85, 107, 47], [255, 140, 0],
+            [153, 50, 204], [139, 0, 0], [233, 150, 122], [143, 188, 143], [72, 61, 139],
+            [47, 79, 79], [0, 206, 209], [148, 0, 211], [255, 20, 147], [0, 191, 255],
+            [105, 105, 105], [30, 144, 255], [178, 34, 34], [255, 250, 240], [34, 139, 34],
+            [255, 0, 255], [220, 220, 220], [248, 248, 255], [255, 215, 0], [218, 165, 32],
+            [128, 128, 128], [0, 128, 0], [173, 255, 47], [240, 255, 240], [255, 105, 180],
+            [205, 92, 92], [75, 0, 130], [255, 245, 240], [240, 230, 140], [230, 230, 250],
+            [255, 240, 245], [124, 252, 0], [255, 250, 205], [173, 216, 230], [240, 128, 128],
+            [224, 255, 255], [238, 221, 130], [211, 211, 211], [144, 238, 144], [255, 182, 193],
+            [255, 160, 122], [32, 178, 170], [135, 206, 250], [119, 136, 153], [176, 196, 222],
+            [255, 255, 224], [0, 255, 0], [50, 205, 50], [250, 240, 230], [255, 0, 255],
+            [128, 0, 0], [102, 205, 170], [0, 0, 205], [186, 85, 211], [147, 112, 219],
+            [60, 179, 113], [123, 104, 238], [0, 250, 154], [72, 209, 204], [199, 21, 133],
+            [25, 25, 112], [245, 245, 220], [255, 228, 225], [255, 228, 181], [255, 222, 173],
+            [0, 0, 128], [253, 245, 230], [128, 128, 0], [107, 142, 35], [255, 165, 0],
+            [255, 69, 0], [218, 112, 214], [238, 232, 170], [152, 251, 152], [175, 238, 238],
+            [219, 112, 147], [255, 239, 213], [255, 218, 185], [205, 133, 63], [255, 192, 203],
+            [221, 160, 221], [176, 224, 230], [128, 0, 128], [255, 0, 0], [188, 143, 143],
+            [65, 105, 225], [139, 69, 19], [250, 128, 114], [244, 164, 96], [46, 139, 87],
+            [255, 245, 238], [160, 82, 45], [192, 192, 192], [135, 206, 235], [106, 90, 205],
+            [112, 128, 144], [255, 250, 250], [0, 255, 127], [70, 130, 180], [210, 180, 140],
+            [0, 128, 128], [216, 191, 216], [255, 99, 71], [64, 224, 208], [238, 130, 238],
+            [245, 222, 179], [255, 255, 255], [245, 245, 245], [255, 255, 0], [154, 205, 50]
         ]
-        self.labels = [0, 0, 1, 1, 2, 2, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7]
-        scaled_data = self.scaler.fit_transform(self.color_data)
+
+        # Generate 20 variations for each of the 140 X11 colors
+        self.color_data_rgb = []
+        self.labels = []
+        for idx, base_rgb in enumerate(x11_base_colors):
+            variations = self.generate_variations(base_rgb, num_samples=20)
+            self.color_data_rgb.extend(variations)
+            self.labels.extend([idx] * 20)
+
+        # Convert RGB to HSV
+        self.color_data_hsv = [cv2.cvtColor(np.uint8([[rgb]]), cv2.COLOR_RGB2HSV)[0][0]
+                               for rgb in self.color_data_rgb]
+        scaled_data = self.scaler.fit_transform(self.color_data_hsv)
+
+        # Tune k and select the best
+        best_k = 3
+        best_accuracy = 0
+        for k in [1, 3, 5, 7, 10, 15]:
+            model = KNeighborsClassifier(n_neighbors=k, metric='euclidean')
+            scores = cross_val_score(model, scaled_data, self.labels, cv=5)
+            accuracy = scores.mean()
+            print(f"k={k}: Accuracy: {accuracy:.2f} (+/- {scores.std() * 2:.2f})")
+            if accuracy > best_accuracy:
+                best_accuracy = accuracy
+                best_k = k
+
+        # Train with the best k
+        print(f"Training with best k={best_k}")
+        self.model = KNeighborsClassifier(n_neighbors=best_k, metric='euclidean')
         self.model.fit(scaled_data, self.labels)
 
     def predict(self, color):
-        scaled_color = self.scaler.transform([color])
+        hsv_color = cv2.cvtColor(np.uint8([[color]]), cv2.COLOR_RGB2HSV)[0][0]
+        scaled_color = self.scaler.transform([hsv_color])
         prediction = self.model.predict(scaled_color)[0]
         confidence = max(self.model.predict_proba(scaled_color)[0])
         return self.colors[prediction], confidence
 
-# Global variables
-lower_bounds = [np.array([0, 50, 50])]
-upper_bounds = [np.array([10, 255, 255])]
-track_window = None
-color_classifier = ColorClassifier()
-color_classifier.train()
-running = True
-current_frame = None
-track_enabled = False
-selected_rgb = None
-
-# Adaptive color detection with improved lighting adjustment
-def adaptive_color_detection(frame):
-    hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    # Enhance lighting robustness
-    h, s, v = cv2.split(hsv_frame)
-    v_eq = cv2.equalizeHist(v)
-    hsv_eq = cv2.merge([h, s, v_eq])
-    
-    masks = []
-    highlighted = frame.copy()
-    for lower, upper in zip(lower_bounds, upper_bounds):
-        mask = cv2.inRange(hsv_eq, lower, upper)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
-        masks.append(mask)
-        highlighted = cv2.bitwise_and(highlighted, highlighted, mask=mask)
-    return masks, highlighted
-
-# Multi-color detection with K-Means
+# Multi-color detection with K-Means in HSV space
 def multi_color_detection(frame, num_colors=3):
-    pixels = frame.reshape(-1, 3)
+    # Convert frame to HSV
+    frame_hsv = cv2.cvtColor(frame, cv2.COLOR_RGB2HSV)
+    pixels = frame_hsv.reshape(-1, 3)
     kmeans = KMeans(n_clusters=num_colors, n_init=5, max_iter=100)
     kmeans.fit(pixels[::10])
     centers = kmeans.cluster_centers_.astype(int)
-    labels = kmeans.predict(pixels)
-    segmented = centers[labels].reshape(frame.shape)
-    return centers, segmented
+    return centers
 
-# CamShift object tracking
-def track_object(frame, mask):
-    global track_window
-    if track_window is None:
-        return frame, None
-    term_crit = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1)
-    ret, track_window = cv2.CamShift(mask, track_window, term_crit)
-    pts = cv2.boxPoints(ret)
-    pts = np.int0(pts)
-    return cv2.polylines(frame, [pts], True, (0, 255, 0), 2), track_window
+# Process and annotate a single frame
+def process_frame(frame):
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    frame_rgb = cv2.resize(frame_rgb, (640, 480))
+    dominant_colors = multi_color_detection(frame_rgb, num_colors=3)  # Now in HSV
+    annotations = []
+    for i, color in enumerate(dominant_colors, 1):
+        color_name, confidence = color_classifier.predict(color)  # Predict using HSV directly
+        # Convert HSV back to RGB for display
+        rgb_color = cv2.cvtColor(np.uint8([[color]]), cv2.COLOR_HSV2RGB)[0][0]
+        annotations.append((rgb_color, color_name, confidence))
+    frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+    for i, (color, name, confidence) in enumerate(annotations):
+        y_pos = 30 + i * 40
+        text = f"{i + 1}. {name} ({confidence:.2f}) - RGB: {color}"
+        cv2.putText(frame_bgr, text, (10, y_pos), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7, (255, 255, 255), 2, cv2.LINE_AA)
+        cv2.putText(frame_bgr, text, (10, y_pos), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7, (0, 0, 0), 1, cv2.LINE_AA)
+        circle_color = tuple(int(c) for c in color[::-1])  # BGR for display
+        cv2.circle(frame_bgr, (300, y_pos - 10), 15, circle_color, -1)
+    return frame_bgr
 
-# Mouse callback for selecting colors and tracking
-def mouse_callback(event):
-    global track_window, lower_bounds, upper_bounds, track_enabled, selected_rgb
-    x, y = event.x, event.y
-    frame = current_frame.copy()
-    rgb_color = frame[y, x]  # BGR
-    hsv_color = cv2.cvtColor(np.uint8([[rgb_color]]), cv2.COLOR_BGR2HSV)[0][0]
-    selected_rgb = rgb_color[::-1]  # RGB
-    
-    if event.num == 1:  # Left-click
-        track_window = (x - 50, y - 50, 100, 100)  # Larger ROI for better tracking
-        track_enabled = track_var.get() == 1
-        tolerance = int(tolerance_slider.get())
-        # Adjusted HSV bounds for better blue detection
-        lower_bounds[0] = np.array([max(0, hsv_color[0] - tolerance), max(50, hsv_color[1] - 60), max(50, hsv_color[2] - 60)])
-        upper_bounds[0] = np.array([min(179, hsv_color[0] + tolerance), 255, 255])
-        print(f"Clicked HSV: {hsv_color}, Lower Bound: {lower_bounds[0]}, Upper Bound: {upper_bounds[0]}")
-    
-    elif event.num == 3:  # Right-click
-        tolerance = int(tolerance_slider.get())
-        lower_bounds.append(np.array([max(0, hsv_color[0] - tolerance), max(50, hsv_color[1] - 60), max(50, hsv_color[2] - 60)]))
-        upper_bounds.append(np.array([min(179, hsv_color[0] + tolerance), 255, 255]))
-    
-    predicted_color, confidence = color_classifier.predict(selected_rgb)
-    info_text.set(f"RGB: {selected_rgb}\nHSV: {hsv_color}\nPredicted: {predicted_color} ({confidence:.2f})")
-    update_swatches()
+# Initialize and train classifier
+color_classifier = ColorClassifier()
+color_classifier.train()
 
-# Reset secondary colors
-def reset_secondary_colors():
-    global lower_bounds, upper_bounds
-    lower_bounds = [lower_bounds[0]]
-    upper_bounds = [upper_bounds[0]]
-    update_swatches()
+# Start video capture and processing
+cap = cv2.VideoCapture(0)
+last_update_time = time.time()
 
-# Update color swatches
-def update_swatches():
-    if selected_rgb is not None:
-        selected_swatch.configure(bg=f'#{selected_rgb[0]:02x}{selected_rgb[1]:02x}{selected_rgb[2]:02x}')
-    
-    for i, swatch in enumerate(dominant_swatches):
-        if i < len(dominant_colors):
-            r, g, b = dominant_colors[i]
-            swatch.configure(bg=f'#{r:02x}{g:02x}{b:02x}')
-        else:
-            swatch.configure(bg='gray')
-
-# GUI update function
-def update_gui():
-    global current_frame, dominant_colors
-    dominant_colors = []
-    while running:
+try:
+    while True:
         ret, frame = cap.read()
         if not ret:
-            continue
+            print("Error: Could not read frame from webcam")
+            break
 
-        frame = cv2.resize(frame, (640, 480))
-        current_frame = frame.copy()
+        annotated_frame = process_frame(frame)
+        cv2.imshow('Webcam - Dominant Colors', annotated_frame)
 
-        # Adaptive color detection
-        masks, highlighted = adaptive_color_detection(frame)
-        
-        # Multi-color detection and segmentation
-        dominant_colors, segmented = multi_color_detection(frame, num_colors=int(num_colors_slider.get()))
-        color_names = []
-        for color in dominant_colors:
-            name, confidence = color_classifier.predict(color)
-            color_names.append(f"{name} ({confidence:.2f})")
-        colors_text.set("Dominant Colors:\n" + "\n".join(color_names))
-        root.after(0, update_swatches)
+        if time.time() - last_update_time > 5:
+            dominant_colors = multi_color_detection(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            print("Three Most Dominant Colors:")
+            for i, color in enumerate(dominant_colors, 1):
+                color_name, confidence = color_classifier.predict(color)
+                rgb_color = cv2.cvtColor(np.uint8([[color]]), cv2.COLOR_HSV2RGB)[0][0]
+                print(f"{i}. {color_name} ({confidence:.2f}) - RGB: {rgb_color}")
+            last_update_time = time.time()
 
-        # Object tracking
-        display_frame = frame.copy()
-        if track_enabled and track_window:
-            tracked_frame, track_window = track_object(display_frame, masks[0])
-            display_frame = tracked_frame if tracked_frame is not None else display_frame
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
 
-        # Combine visualizations
-        display_frame = cv2.addWeighted(display_frame, 0.7, highlighted, 0.3, 0)
-        if segment_var.get():
-            display_frame = cv2.addWeighted(display_frame, 0.7, segmented, 0.3, 0)
-        
-        # Convert for Tkinter
-        display_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
-        frame_img = Image.fromarray(display_frame)
-        imgtk = ImageTk.PhotoImage(image=frame_img)
-        root.after(0, lambda: label.configure(image=imgtk) or setattr(label, 'imgtk', imgtk))
-        time.sleep(0.5)
+        time.sleep(0.1)
 
-# Stop the application
-def stop_app():
-    global running
-    running = False
+except KeyboardInterrupt:
+    print("Stopping...")
+finally:
     cap.release()
-    root.quit()
-
-# GUI Setup
-root = tk.Tk()
-root.title("Advanced Color Detection and Tracking")
-
-cap = cv2.VideoCapture(0)
-label = tk.Label(root)
-label.pack()
-
-# Mouse bindings
-def on_mouse(event):
-    mouse_callback(type('Event', (), {'x': event.x, 'y': event.y, 'num': 1 if event.num == 1 else 3})())
-label.bind("<Button-1>", on_mouse)
-label.bind("<Button-3>", on_mouse)
-
-# Text displays
-info_text = StringVar()
-colors_text = StringVar()
-info_label = Label(root, textvariable=info_text, justify="left")
-info_label.pack(side=tk.LEFT, padx=10)
-colors_label = Label(root, textvariable=colors_text, justify="left")
-colors_label.pack(side=tk.RIGHT, padx=10)
-
-# Color swatches
-swatch_frame = tk.Frame(root)
-swatch_frame.pack()
-Label(swatch_frame, text="Selected Color:").pack(side=tk.LEFT)
-selected_swatch = Canvas(swatch_frame, width=30, height=30, bg='gray')
-selected_swatch.pack(side=tk.LEFT, padx=5)
-Label(swatch_frame, text="Dominant Colors:").pack(side=tk.LEFT)
-dominant_swatches = [Canvas(swatch_frame, width=30, height=30, bg='gray') for _ in range(5)]
-for swatch in dominant_swatches:
-    swatch.pack(side=tk.LEFT, padx=2)
-
-# Controls
-tolerance_slider = Scale(root, from_=5, to=30, label="HSV Tolerance", orient=tk.HORIZONTAL)
-tolerance_slider.set(10)
-tolerance_slider.pack()
-num_colors_slider = Scale(root, from_=1, to=5, label="Number of Colors", orient=tk.HORIZONTAL)
-num_colors_slider.set(3)
-num_colors_slider.pack()
-track_var = IntVar()
-track_check = Checkbutton(root, text="Enable Tracking", variable=track_var)
-track_check.pack()
-segment_var = IntVar()
-segment_check = Checkbutton(root, text="Show Segmentation", variable=segment_var)
-segment_check.pack()
-reset_button = Button(root, text="Reset Secondary Colors", command=reset_secondary_colors)
-reset_button.pack()
-stop_button = Button(root, text="Stop", command=stop_app)
-stop_button.pack()
-
-# Start GUI in thread
-dominant_colors = []
-thread = threading.Thread(target=update_gui, daemon=True)
-thread.start()
-
-root.mainloop()
-cv2.destroyAllWindows()
+    cv2.destroyAllWindows()
